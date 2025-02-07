@@ -1,61 +1,62 @@
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { Timer } from 'three/examples/jsm/misc/Timer.js';
-import { scene } from './components/scene';
-import { addLights } from './components/lights';
-import { addAxesHelper } from './helpers/axesHelper/axesHelper';
-import { setupGui } from './helpers/gui/guiSettings';
+import express from 'express';
+import { createServer } from 'http';
+import { WebSocketServer, WebSocket } from 'ws';
+import cors from 'cors';
+import { v4 as uuidv4 } from 'uuid';
 
-const canvas: HTMLElement | undefined =
-  (document.querySelector('canvas.webgl') as HTMLElement) ?? undefined;
+const app = express();
 
-const axesHelper = addAxesHelper();
-setupGui(axesHelper);
-addLights();
+const server = createServer(app);
 
-const sizes = {
-  width: window.innerWidth,
-  height: window.innerHeight,
-};
+const wss = new WebSocketServer({ server });
 
-window.addEventListener('resize', () => {
-  sizes.width = window.innerWidth;
-  sizes.height = window.innerHeight;
-  camera.aspect = sizes.width / sizes.height;
-  camera.updateProjectionMatrix();
-  renderer.setSize(sizes.width, sizes.height);
+app.use(cors());
+app.use(express.json());
+
+export interface MoveData {
+  type: 'move';
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface RotationData {
+  type: 'rotate';
+  x: number;
+  y: number;
+  z: number;
+}
+
+const clients: Map<string, WebSocket> = new Map();
+
+wss.on('connection', (ws: WebSocket) => {
+  const clientId = uuidv4();
+  clients.set(clientId, ws);
+
+  ws.onmessage = (event) => {
+    try {
+      const message: MoveData = JSON.parse(event.data as string);
+
+      clients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN && client !== ws) {
+          client.send(JSON.stringify(message));
+        }
+      });
+    } catch (error) {
+      console.error('Error parsing message:', error);
+    }
+  };
+
+  ws.onerror = (error) => {
+    console.error('WebSocket error:', error);
+  };
+
+  ws.onclose = () => {
+    console.log('Client disconnected');
+  };
 });
 
-const camera = new THREE.PerspectiveCamera(
-  75,
-  sizes.width / sizes.height,
-  0.1,
-  100
+const PORT = 8080;
+server.listen(PORT, () =>
+  console.log(`WebSocket Server running on ws://localhost:${PORT}`)
 );
-camera.position.set(0, 5, 5);
-scene.add(camera);
-
-const controls = new OrbitControls(camera, canvas);
-controls.enableDamping = true;
-
-const renderer = new THREE.WebGLRenderer({
-  canvas,
-});
-
-renderer.setSize(sizes.width, sizes.height);
-
-const timer = new Timer();
-
-const tick = () => {
-  timer.update();
-
-  controls.update();
-
-  //   const elapsedTime = timer.getElapsed();
-
-  renderer.render(scene, camera);
-
-  window.requestAnimationFrame(tick);
-};
-
-tick();
