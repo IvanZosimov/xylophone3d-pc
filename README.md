@@ -1,1 +1,1 @@
-# xylophone3dserver
+# xylophone3d-server
