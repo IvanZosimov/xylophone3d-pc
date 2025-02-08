@@ -2,7 +2,17 @@ import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import cors from 'cors';
-import { v4 as uuidv4 } from 'uuid';
+import { IClients } from './interfaces';
+import { PORT } from './constants';
+import { getIsMobileClient, getIsPcClient } from './utils';
+import {
+  onMobileClientConnection,
+  onMobileClose,
+  onMobileMessage,
+  onPcCLientConnection,
+  onPcClose,
+  onUnknownDeviceTypeConnection,
+} from './eventHandlers';
 
 const app = express();
 
@@ -13,50 +23,34 @@ const wss = new WebSocketServer({ server });
 app.use(cors());
 app.use(express.json());
 
-export interface MoveData {
-  type: 'move';
-  x: number;
-  y: number;
-  z: number;
-}
+const clients: IClients = new Map();
 
-export interface RotationData {
-  type: 'rotate';
-  x: number;
-  y: number;
-  z: number;
-}
+wss.on('connection', (ws: WebSocket, request) => {
+  const isPcClient = getIsPcClient(request);
+  const isMobileClient = getIsMobileClient(request);
 
-const clients: Map<string, WebSocket> = new Map();
+  if (isPcClient) {
+    onPcCLientConnection(ws, clients);
+  } else if (isMobileClient) {
+    onMobileClientConnection(ws, request, clients);
+  } else {
+    onUnknownDeviceTypeConnection(ws);
+  }
 
-wss.on('connection', (ws: WebSocket) => {
-  const clientId = uuidv4();
-  clients.set(clientId, ws);
+  if (isPcClient) {
+    onPcClose(ws, clients);
+  }
 
-  ws.onmessage = (event) => {
-    try {
-      const message: MoveData = JSON.parse(event.data as string);
-
-      clients.forEach((client) => {
-        if (client.readyState === WebSocket.OPEN && client !== ws) {
-          client.send(JSON.stringify(message));
-        }
-      });
-    } catch (error) {
-      console.error('Error parsing message:', error);
-    }
-  };
+  if (isMobileClient) {
+    onMobileMessage(ws, request, clients);
+    onMobileClose(ws, request, clients);
+  }
 
   ws.onerror = (error) => {
     console.error('WebSocket error:', error);
   };
-
-  ws.onclose = () => {
-    console.log('Client disconnected');
-  };
 });
 
-const PORT = 8080;
 server.listen(PORT, () =>
-  console.log(`WebSocket Server running on ws://localhost:${PORT}`)
+  console.log(`WebSocket Server running on port ${PORT}`)
 );
